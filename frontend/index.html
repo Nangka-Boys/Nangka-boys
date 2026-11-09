@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dapitan City Boarding House Finder</title>
+    <!-- Google Fonts: Newsreader (Editorial Serif) & Plus Jakarta Sans / Inter (Clean UI) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              serif: ['Newsreader', 'Georgia', 'serif'],
+              sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+            },
+            colors: {
+              forest: {
+                DEFAULT: '#1c3f2d',
+                dark: '#142e21',
+                light: '#24533a',
+              },
+              terracotta: {
+                DEFAULT: '#c86236',
+                light: '#df7c52',
+              },
+              warm: {
+                bg: '#faf8f5',
+                card: '#ffffff',
+                border: '#e7e4dc',
+                muted: '#78716c',
+              }
+            }
+          }
+        }
+      }
+    </script>
+  </head>
+  <body class="bg-[#faf8f5] text-stone-900 antialiased selection:bg-[#1c3f2d] selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
