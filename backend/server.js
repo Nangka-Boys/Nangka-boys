@@ -54,8 +54,8 @@ const startServer = async () => {
   try {
     await migrateAndSeed();
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Dapitan Boarding House API running on http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Dapitan Boarding House API running on http://localhost:${PORT} and http://0.0.0.0:${PORT}`);
       console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
     });
   } catch (error) {
