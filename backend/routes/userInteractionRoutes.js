@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken, authorizeRoles } = require('../middleware/auth');
+const { authenticateToken, optionalAuthenticateToken, authorizeRoles } = require('../middleware/auth');
 const {
   toggleFavorite,
   getFavorites,
@@ -14,7 +14,7 @@ router.post('/favorites/:boardingHouseId', authenticateToken, toggleFavorite);
 router.get('/favorites', authenticateToken, getFavorites);
 
 // Reports (Public or Authenticated)
-router.post('/reports', authenticateToken, reportListing);
+router.post('/reports', optionalAuthenticateToken, reportListing);
 
 // Admin Moderation on Reports
 router.get('/admin/reports', authenticateToken, authorizeRoles('admin'), getAdminReports);

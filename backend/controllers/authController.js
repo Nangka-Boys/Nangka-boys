@@ -63,7 +63,11 @@ const login = async (req, res) => {
 
     const user = result.rows[0];
     if (!user.is_active) {
-      return res.status(403).json({ success: false, message: 'This account has been deactivated.' });
+      return res.status(403).json({
+        success: false,
+        account_suspended: true,
+        message: 'This account has been suspended by an administrator. You can no longer log in or access this system.',
+      });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
@@ -102,15 +106,99 @@ const getProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    return res.json({ success: true, data: result.rows[0] });
+    const user = result.rows[0];
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        account_suspended: true,
+        message: 'Your account has been suspended by an administrator.',
+      });
+    }
+
+    return res.json({ success: true, data: user });
   } catch (error) {
     console.error('Profile fetch error:', error);
     return res.status(500).json({ success: false, message: 'Server error fetching profile.' });
   }
 };
 
+// Update user profile information (full_name, phone_number)
+const updateProfile = async (req, res) => {
+  try {
+    const { full_name, phone_number } = req.body;
+    if (!full_name || full_name.trim() === '') {
+      return res.status(400).json({ success: false, message: 'Full name is required.' });
+    }
+
+    const result = await db.query(
+      `UPDATE users 
+       SET full_name = $1, phone_number = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3
+       RETURNING id, full_name, email, phone_number, role, is_active, created_at, updated_at`,
+      [full_name.trim(), phone_number ? phone_number.trim() : null, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Profile updated successfully.',
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    return res.status(500).json({ success: false, message: 'Server error updating profile.' });
+  }
+};
+
+// Change user password
+const changePassword = async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+
+    if (!current_password || !new_password) {
+      return res.status(400).json({ success: false, message: 'Both current password and new password are required.' });
+    }
+
+    if (new_password.length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
+    }
+
+    const userRes = await db.query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const user = userRes.rows[0];
+    const isMatch = await bcrypt.compare(current_password, user.password_hash);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: 'Incorrect current password.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const newHash = await bcrypt.hash(new_password, salt);
+
+    await db.query(
+      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [newHash, req.user.id]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Password changed successfully.',
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    return res.status(500).json({ success: false, message: 'Server error changing password.' });
+  }
+};
+
 module.exports = {
   register,
   login,
-  getProfile
+  getProfile,
+  updateProfile,
+  changePassword,
 };

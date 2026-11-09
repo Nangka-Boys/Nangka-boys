@@ -38,7 +38,8 @@ const getAllListingsForAdmin = async (req, res) => {
         bh.*,
         u.full_name AS owner_name,
         u.email AS owner_email,
-        u.phone_number AS owner_phone
+        u.phone_number AS owner_phone,
+        (SELECT photo_url FROM listing_photos lp WHERE lp.boarding_house_id = bh.id ORDER BY lp.is_cover_photo DESC, lp.uploaded_at ASC LIMIT 1) AS cover_photo
       FROM boarding_houses bh
       JOIN users u ON bh.owner_id = u.id
     `;
@@ -90,8 +91,106 @@ const updateListingStatus = async (req, res) => {
   }
 };
 
+// GET /api/admin/users (List all registered users for admin)
+const getAllUsers = async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT 
+        id, 
+        full_name, 
+        email, 
+        phone_number, 
+        role, 
+        is_active, 
+        created_at, 
+        updated_at,
+        (SELECT COUNT(*) FROM boarding_houses bh WHERE bh.owner_id = users.id) AS listings_count
+      FROM users
+      ORDER BY created_at DESC;
+    `);
+
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('Admin users error:', error);
+    return res.status(500).json({ success: false, message: 'Server error retrieving users list.' });
+  }
+};
+
+// PATCH /api/admin/users/:id/status (Toggle user active status)
+const toggleUserStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent admin from deactivating their own account
+    if (id === req.user.id) {
+      return res.status(400).json({ success: false, message: 'You cannot deactivate your own admin account.' });
+    }
+
+    const result = await db.query(`
+      UPDATE users
+      SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING id, full_name, email, role, is_active;
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const updatedUser = result.rows[0];
+    return res.json({
+      success: true,
+      message: `User ${updatedUser.full_name} is now ${updatedUser.is_active ? 'Active' : 'Suspended'}.`,
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error('Toggle user status error:', error);
+    return res.status(500).json({ success: false, message: 'Server error updating user status.' });
+  }
+};
+
+// DELETE /api/admin/users/:id (Admin permanently deletes user account)
+const deleteUserByAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent admin from deleting their own account
+    if (id === req.user.id) {
+      return res.status(400).json({ success: false, message: 'You cannot delete your own admin account.' });
+    }
+
+    const check = await db.query('SELECT id, full_name, role FROM users WHERE id = $1', [id]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const userToDelete = check.rows[0];
+
+    // Clear reviewed_by references in owner_verifications if any
+    await db.query('UPDATE owner_verifications SET reviewed_by = NULL WHERE reviewed_by = $1', [id]);
+
+    // Delete user from database (cascades to listings, verifications, favorites, and sets null on reports)
+    await db.query('DELETE FROM users WHERE id = $1', [id]);
+
+    return res.json({
+      success: true,
+      message: `User account "${userToDelete.full_name}" has been permanently deleted.`,
+    });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    return res.status(500).json({ success: false, message: 'Server error deleting user account.' });
+  }
+};
+
 module.exports = {
   getSystemStats,
   getAllListingsForAdmin,
   updateListingStatus,
+  getAllUsers,
+  toggleUserStatus,
+  deleteUserByAdmin,
 };
