@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment secrets
+.env
+.env.local
+.env.*.local
+
+# Uploads & User documents/photos (do not upload private IDs to git)
+uploads/documents/*
+uploads/photos/*
+!uploads/documents/.gitkeep
+!uploads/photos/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS & Editor files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

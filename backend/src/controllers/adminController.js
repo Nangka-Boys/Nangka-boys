@@ -1,0 +1,233 @@
+const db = require('../config/db');
+
+// GET /api/admin/stats (Utilizes database view vw_system_dashboard_stats)
+const getSystemStats = async (req, res) => {
+  try {
+    const statsRes = await db.query('SELECT * FROM vw_system_dashboard_stats');
+    const s = statsRes.rows[0] || {};
+
+    return res.json({
+      success: true,
+      data: {
+        users_count: parseInt(s.users_count || 0, 10),
+        owners_count: parseInt(s.owners_count || 0, 10),
+        admins_count: parseInt(s.admins_count || 0, 10),
+        total_listings_count: parseInt(s.total_listings_count || 0, 10),
+        published_listings_count: parseInt(s.published_listings_count || 0, 10),
+        pending_listings_count: parseInt(s.pending_listings_count || 0, 10),
+        rejected_listings_count: parseInt(s.rejected_listings_count || 0, 10),
+        archived_listings_count: parseInt(s.archived_listings_count || 0, 10),
+        total_rooms_count: parseInt(s.total_rooms_count || 0, 10),
+        total_available_slots_count: parseInt(s.total_available_slots_count || 0, 10),
+        pending_verifications_count: parseInt(s.pending_verifications_count || 0, 10),
+        pending_reports_count: parseInt(s.pending_reports_count || 0, 10),
+        total_audit_logs_count: parseInt(s.total_audit_logs_count || 0, 10),
+      },
+    });
+  } catch (error) {
+    console.error('Admin stats error:', error);
+    return res.status(500).json({ success: false, message: 'Server error retrieving statistics.' });
+  }
+};
+
+// GET /api/admin/listings (Admin can see all listings, regardless of status)
+const getAllListingsForAdmin = async (req, res) => {
+  try {
+    const { status } = req.query; // pending_approval, published, rejected, archived
+    let query = `
+      SELECT 
+        bh.*,
+        u.full_name AS owner_name,
+        u.email AS owner_email,
+        u.phone_number AS owner_phone,
+        (SELECT photo_url FROM listing_photos lp WHERE lp.boarding_house_id = bh.id ORDER BY lp.is_cover_photo DESC, lp.uploaded_at ASC LIMIT 1) AS cover_photo
+      FROM boarding_houses bh
+      JOIN users u ON bh.owner_id = u.id
+    `;
+    const params = [];
+
+    if (status) {
+      query += ` WHERE bh.status = $1`;
+      params.push(status);
+    }
+    query += ` ORDER BY bh.created_at DESC;`;
+
+    const result = await db.query(query, params);
+    return res.json({ success: true, count: result.rows.length, data: result.rows });
+  } catch (error) {
+    console.error('Admin listings error:', error);
+    return res.status(500).json({ success: false, message: 'Server error retrieving admin listings.' });
+  }
+};
+
+// PATCH /api/admin/listings/:id/status (Approve or Reject listing)
+const updateListingStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, admin_review_notes } = req.body;
+
+    if (!['published', 'rejected', 'archived', 'pending_approval'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid listing status.' });
+    }
+
+    const result = await db.query(`
+      UPDATE boarding_houses
+      SET status = $1, admin_review_notes = $2, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+      RETURNING *;
+    `, [status, admin_review_notes || null, id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Boarding house not found.' });
+    }
+
+    return res.json({
+      success: true,
+      message: `Listing status updated to ${status}.`,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Update listing status error:', error);
+    return res.status(500).json({ success: false, message: 'Server error updating listing.' });
+  }
+};
+
+// GET /api/admin/users (List all registered users for admin)
+const getAllUsers = async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT 
+        id, 
+        full_name, 
+        email, 
+        phone_number, 
+        role, 
+        is_active, 
+        created_at, 
+        updated_at,
+        (SELECT COUNT(*) FROM boarding_houses bh WHERE bh.owner_id = users.id) AS listings_count
+      FROM users
+      ORDER BY created_at DESC;
+    `);
+
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('Admin users error:', error);
+    return res.status(500).json({ success: false, message: 'Server error retrieving users list.' });
+  }
+};
+
+// PATCH /api/admin/users/:id/status (Toggle user active status)
+const toggleUserStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent admin from deactivating their own account
+    if (id === req.user.id) {
+      return res.status(400).json({ success: false, message: 'You cannot deactivate your own admin account.' });
+    }
+
+    const result = await db.query(`
+      UPDATE users
+      SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING id, full_name, email, role, is_active;
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const updatedUser = result.rows[0];
+    return res.json({
+      success: true,
+      message: `User ${updatedUser.full_name} is now ${updatedUser.is_active ? 'Active' : 'Suspended'}.`,
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error('Toggle user status error:', error);
+    return res.status(500).json({ success: false, message: 'Server error updating user status.' });
+  }
+};
+
+// POST /api/admin/listings/:id/archive (Invokes Stored Procedure sp_archive_listing)
+const archiveListingViaProcedure = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminId = req.user.id;
+
+    // Call PostgreSQL Stored Procedure
+    await db.query('CALL sp_archive_listing($1, $2, $3)', [
+      id,
+      adminId,
+      reason || 'Archived by administrator via system procedure',
+    ]);
+
+    return res.json({
+      success: true,
+      message: 'Boarding house listing archived successfully via stored procedure.',
+    });
+  } catch (error) {
+    console.error('Archive listing error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Server error archiving listing.' });
+  }
+};
+
+// DELETE /api/admin/users/:id (Admin permanently deletes user account using transaction)
+const deleteUserByAdmin = async (req, res) => {
+  let client = null;
+  try {
+    const { id } = req.params;
+
+    // Prevent admin from deleting their own account
+    if (id === req.user.id) {
+      return res.status(400).json({ success: false, message: 'You cannot delete your own admin account.' });
+    }
+
+    const check = await db.query('SELECT id, full_name, role FROM users WHERE id = $1', [id]);
+    if (check.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const userToDelete = check.rows[0];
+
+    client = await db.pool.connect();
+    await client.query('BEGIN');
+
+    // Clear reviewed_by references in owner_verifications if any
+    await client.query('UPDATE owner_verifications SET reviewed_by = NULL WHERE reviewed_by = $1', [id]);
+
+    // Delete user from database (cascades to listings, verifications, favorites, and sets null on reports)
+    await client.query('DELETE FROM users WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+
+    return res.json({
+      success: true,
+      message: `User account "${userToDelete.full_name}" has been permanently deleted.`,
+    });
+  } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+    console.error('Delete user error:', error);
+    return res.status(500).json({ success: false, message: 'Server error deleting user account.' });
+  } finally {
+    if (client) client.release();
+  }
+};
+
+module.exports = {
+  getSystemStats,
+  getAllListingsForAdmin,
+  updateListingStatus,
+  archiveListingViaProcedure,
+  getAllUsers,
+  toggleUserStatus,
+  deleteUserByAdmin,
+};

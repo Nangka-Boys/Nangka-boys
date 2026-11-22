@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const { migrateAndSeed } = require('./src/db/initDb');
 const authRoutes = require('./src/routes/authRoutes');
